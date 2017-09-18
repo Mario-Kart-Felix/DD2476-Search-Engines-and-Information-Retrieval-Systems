@@ -5,6 +5,7 @@
  *   First version: Johan Boye, 2012
  *   Additions: Hedvig Kjellström, 2012-14
  *   Modifications: Johan Boye, 2016
+ *   Additions: Alexandros Krontiris, 2017
  */  
 
 
@@ -19,6 +20,7 @@ import java.util.StringTokenizer;
 import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
+import javax.swing.text.*;
 import javax.swing.event.*;
 
 
@@ -62,7 +64,6 @@ public class SearchGUI extends JFrame {
 		
     /** The file containing the pageranks. */
     String rank_file = "";
-
 
     /*  
      *   Common GUI resources
@@ -170,11 +171,21 @@ public class SearchGUI extends JFrame {
 		    // Search and print results. Access to the index is synchronized since
 		    // we don't want to search at the same time we're indexing new files
 		    // (this might corrupt the index).
+			boolean SPECIAL_CASE = false;
 		    synchronized ( indexLock ) {
+			// ---- Special case for SpellChecker in RANKED_QUERY -------
+			if (queryType == Index.RANKED_QUERY) {
+				for (int i = 0; i < query.terms.size(); i++) {
+					if (indexer.index.getPostings(query.terms.get(i)) == null) {
+						SPECIAL_CASE = true;
+					}
+				}
+			}
+			// ----------------------------------------------------------
 			results = indexer.index.search( query, queryType, rankingType, structureType ); 
 		    }
 		    StringBuffer buf = new StringBuffer();
-		    if ( results != null ) {
+		    if ( results != null  && SPECIAL_CASE == false) {
 			buf.append( "\nFound " + results.size() + " matching document(s)\n\n" );
 			for ( int i=0; i<results.size(); i++ ) {
 			    buf.append( " " + i + ". " );
@@ -191,9 +202,36 @@ public class SearchGUI extends JFrame {
 			    buf.append( "\n" );
 			}
 		    }
-		    else {
+			// ---- SpellChecker call -------
+		    else if (query.terms.size() > 0) {
 			buf.append( "\nFound 0 matching document(s)\n\n" );
+			buf.append( "\nCalling SpellChecker! \nL O A D I N G . . .\n" );
+			SpellChecker spellThis = new SpellChecker(query, indexer);
+			String respelled_queryString = spellThis.getMatch();
+			buf.append( "\n" + queryString + "  ---->  " + respelled_queryString + "\n" );
+			query = new Query(respelled_queryString);
+			buf.append( "\nSearching for */ " + respelled_queryString + " /* instead.\n"); 
+			results = indexer.index.search( query, queryType, rankingType, structureType ); 
+			buf.append( "\nFound " + results.size() + " matching document(s)\n\n" );
+			for ( int i=0; i<results.size(); i++ ) {
+			    buf.append( " " + i + ". " );
+			    String filename = indexer.index.docIDs.get( "" + results.get(i).docID );
+			    if ( filename == null ) {
+				buf.append( "" + results.get(i).docID );
+			    }
+			    else {
+				buf.append( filename );
+			    }
+			    if ( queryType == Index.RANKED_QUERY ) {
+				buf.append( "   " + String.format( "%.5f", results.get(i).score )); 
+			    }
+			    buf.append( "\n" );
+			}
+			// ------------------------------
 		    }
+			else {
+			buf.append( "\nFound 0 matching document(s)\n\n" );
+			}
 		    resultWindow.setText( buf.toString() );
 		    resultWindow.setCaretPosition( 0 );
 		}
